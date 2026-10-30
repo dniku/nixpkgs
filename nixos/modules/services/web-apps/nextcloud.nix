@@ -1519,6 +1519,7 @@ in
           };
           nextcloud-update-db = {
             after = [ "nextcloud-setup.service" ];
+            environment.NEXTCLOUD_CONFIG_DIR = "${datadir}/config";
             script = ''
               ${lib.getExe occ} db:add-missing-columns
               ${lib.getExe occ} db:add-missing-indices

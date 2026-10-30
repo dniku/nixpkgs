@@ -122,6 +122,22 @@ runTest (
 
         with subtest("secrets"):
             assert "foobar" == nextcloud.succeed("nextcloud-occ config:system:get mysecret").strip()
+
+        with subtest("Database maintenance respects maintenance mode"):
+            nextcloud.succeed("systemctl start --wait nextcloud-update-db.service")
+            nextcloud.succeed("nextcloud-occ maintenance:mode --on")
+            try:
+                nextcloud.succeed("systemctl start --wait nextcloud-update-db.service")
+                assert nextcloud.succeed(
+                    "systemctl show --property=Result --value nextcloud-update-db.service"
+                ).strip() == "exec-condition"
+            finally:
+                nextcloud.succeed("nextcloud-occ maintenance:mode --off")
+
+            nextcloud.succeed("systemctl start --wait nextcloud-update-db.service")
+            assert nextcloud.succeed(
+                "systemctl show --property=Result --value nextcloud-update-db.service"
+            ).strip() == "success"
       '';
   }
 )
