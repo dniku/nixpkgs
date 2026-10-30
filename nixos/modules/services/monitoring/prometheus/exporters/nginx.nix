@@ -74,7 +74,7 @@ in
     ++ [
       (mkIf config.services.nginx.enable {
         after = [ "nginx.service" ];
-        requires = [ "nginx.service" ];
+        wants = [ "nginx.service" ];
       })
     ]
   );

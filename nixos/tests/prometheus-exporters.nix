@@ -1197,7 +1197,7 @@ let
       };
 
     nginx =
-      { ... }:
+      { pkgs, ... }:
       {
         exporterConfig = {
           enable = true;
@@ -1209,12 +1209,31 @@ let
             statusPage = true;
             virtualHosts."test".extraConfig = "return 204;";
           };
+          systemd.services.nginx.serviceConfig = {
+            ExecStartPre = [ "${pkgs.coreutils}/bin/test ! -e /run/nginx-test-failure" ];
+            Restart = lib.mkForce "no";
+          };
         };
         exporterTest = ''
           wait_for_unit("nginx.service")
           wait_for_unit("prometheus-nginx-exporter.service")
           wait_for_open_port(9113)
           succeed("curl -sSf http://localhost:9113/metrics | grep 'nginx_up{foo=\"bar\"} 1'")
+
+          succeed("systemctl stop nginx.service")
+          succeed("curl -sSf http://localhost:9113/metrics | grep 'nginx_up{foo=\"bar\"} 0'")
+          succeed("systemctl start nginx.service")
+          wait_until_succeeds("curl -sSf http://localhost:9113/metrics | grep 'nginx_up{foo=\"bar\"} 1'")
+
+          succeed("systemctl stop nginx.service prometheus-nginx-exporter.service")
+          succeed("touch /run/nginx-test-failure")
+          succeed("systemctl start prometheus-nginx-exporter.service")
+          succeed("systemctl is-failed nginx.service")
+          wait_for_open_port(9113)
+          succeed("curl -sSf http://localhost:9113/metrics | grep 'nginx_up{foo=\"bar\"} 0'")
+          succeed("rm /run/nginx-test-failure")
+          succeed("systemctl start nginx.service")
+          wait_until_succeeds("curl -sSf http://localhost:9113/metrics | grep 'nginx_up{foo=\"bar\"} 1'")
         '';
       };
 
