@@ -1,4 +1,5 @@
 {
+  options,
   config,
   lib,
   pkgs,
@@ -15,6 +16,7 @@ let
     ;
 
   cfg = config.services.loki;
+  isDefaultDataDir = cfg.dataDir == options.services.loki.dataDir.default;
 
   prettyJSON =
     conf:
@@ -50,6 +52,10 @@ in
       default = "/var/lib/loki";
       description = ''
         Specify the data directory for Loki.
+        The default directory is managed by systemd's `StateDirectory`, using
+        {option}`users.users.<name>.homeMode` of the configured user as its mode.
+        Custom directories are created with tmpfiles, which preserves existing
+        permissions and only changes ownership of the directory itself.
       '';
     };
 
@@ -103,12 +109,18 @@ in
 
     environment.systemPackages = [ cfg.package ]; # logcli
 
+    systemd.tmpfiles.settings.loki = mkIf (!isDefaultDataDir) {
+      "${cfg.dataDir}".d = {
+        # Only apply the mode on creation: https://www.freedesktop.org/software/systemd/man/262/tmpfiles.d.html#Mode
+        mode = ":${config.users.users.${cfg.user}.homeMode}";
+        inherit (cfg) user group;
+      };
+    };
+
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
       description = "Loki Service User";
       group = cfg.group;
-      home = cfg.dataDir;
-      createHome = true;
       isSystemUser = true;
     };
 
@@ -117,6 +129,7 @@ in
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
+      environment.HOME = cfg.dataDir;
 
       serviceConfig =
         let
@@ -144,6 +157,9 @@ in
         {
           ExecStart = "${cfg.package}/bin/loki --config.file=${conf} ${escapeShellArgs cfg.extraFlags}";
           User = cfg.user;
+          Group = cfg.group;
+          StateDirectory = mkIf isDefaultDataDir "loki";
+          StateDirectoryMode = mkIf isDefaultDataDir config.users.users.${cfg.user}.homeMode;
           Restart = "always";
           PrivateTmp = true;
           ProtectHome = true;
