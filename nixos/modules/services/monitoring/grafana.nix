@@ -11,6 +11,7 @@ with lib;
 let
   cfg = config.services.grafana;
   opt = options.services.grafana;
+  isDefaultDataDir = cfg.dataDir == opt.dataDir.default;
   provisioningSettingsFormat = pkgs.formats.yaml { };
   declarativePlugins = pkgs.linkFarm "grafana-plugins" (
     map (pkg: {
@@ -436,7 +437,13 @@ in
     package = mkPackageOption pkgs "grafana" { };
 
     dataDir = mkOption {
-      description = "Data directory.";
+      description = ''
+        Data directory. The default directory is managed by systemd's
+        `StateDirectory`, using {option}`users.users.<name>.homeMode` of the
+        Grafana user as its mode.
+        Custom directories are created with tmpfiles, which preserves existing
+        permissions and only changes ownership of the directory itself.
+      '';
       default = "/var/lib/grafana";
       type = types.path;
     };
@@ -2089,6 +2096,7 @@ in
       ]
       ++ lib.optional usePostgresql "postgresql.target"
       ++ lib.optional useMysql "mysql.service";
+      environment.HOME = cfg.dataDir;
       serviceConfig = {
         ExecStartPre = [
           "${lib.getExe' pkgs.coreutils "ln"} -fs ${cfg.package}/share/grafana/conf ${cfg.dataDir}"
@@ -2096,6 +2104,8 @@ in
         ExecStart = "${lib.getExe cfg.package} server -homepath ${cfg.dataDir} -config ${configFile}";
 
         WorkingDirectory = cfg.dataDir;
+        StateDirectory = mkIf isDefaultDataDir "grafana";
+        StateDirectoryMode = mkIf isDefaultDataDir config.users.users.grafana.homeMode;
         User = "grafana";
         Restart = "on-failure";
         RuntimeDirectory = "grafana";
@@ -2141,11 +2151,18 @@ in
 
     networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.settings.server.http_port ];
 
+    systemd.tmpfiles.settings.grafana = mkIf (!isDefaultDataDir) {
+      "${cfg.dataDir}".d = {
+        # Only apply the mode on creation: https://www.freedesktop.org/software/systemd/man/262/tmpfiles.d.html#Mode
+        mode = ":${config.users.users.grafana.homeMode}";
+        user = "grafana";
+        group = "grafana";
+      };
+    };
+
     users.users.grafana = {
       uid = config.ids.uids.grafana;
       description = "Grafana user";
-      home = cfg.dataDir;
-      createHome = true;
       group = "grafana";
     };
     users.groups.grafana = { };
